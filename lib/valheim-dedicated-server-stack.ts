@@ -2,7 +2,9 @@ import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as iam from 'aws-cdk-lib/aws-iam';
 import * as ssm from 'aws-cdk-lib/aws-ssm';
+import * as backup from 'aws-cdk-lib/aws-backup';
 import { Construct } from 'constructs';
+import { Schedule } from 'aws-cdk-lib/aws-events';
 
 export class ValheimDedicatedServerStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -80,6 +82,38 @@ export class ValheimDedicatedServerStack extends cdk.Stack {
       },
     });
 
+    const backupVault = new backup.BackupVault(this, 'ValheimBackupVault', {
+      backupVaultName: 'valheim-server-backup-vault',
+    });
+
+    const backupPlan = new backup.BackupPlan(this, 'ValheimBackupPlan', {
+      backupPlanName: 'valheim-server-backup-plan',
+      backupVault,
+      backupPlanRules: [
+        new backup.BackupPlanRule({
+          ruleName: 'DailyBackups',
+          scheduleExpression: Schedule.cron({
+            minute: '0',
+            hour: '4',
+            day: '*',
+            month: '*',
+            year: '*',
+          }),
+          deleteAfter: cdk.Duration.days(7),
+          startWindow: cdk.Duration.hours(1),
+          completionWindow: cdk.Duration.hours(2),
+        }),
+      ],
+    });
+
+    new backup.BackupSelection(this, 'ValheimBackupSelection', {
+      backupPlan,
+      resources: [
+        backup.BackupResource.fromEc2Instance(instance),
+      ],
+      backupSelectionName: 'valheim-server-selection',
+    });
+
     new cdk.CfnOutput(this, 'InstanceId', {
       value: instance.instanceId,
       description: 'EC2 Instance ID',
@@ -93,6 +127,11 @@ export class ValheimDedicatedServerStack extends cdk.Stack {
     new cdk.CfnOutput(this, 'ServerConnection', {
       value: `${instance.instancePublicIp}:2456`,
       description: 'Valheim server connection address',
+    });
+
+    new cdk.CfnOutput(this, 'BackupVaultName', {
+      value: backupVault.backupVaultName,
+      description: 'AWS Backup Vault name for Valheim server',
     });
   }
 }
